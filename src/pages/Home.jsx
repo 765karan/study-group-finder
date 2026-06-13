@@ -67,7 +67,7 @@ function Home() {
       <div style={{
         position: "relative", zIndex: 1,
         maxWidth: "680px", margin: "0 auto",
-        padding: "48px 24px"
+        padding: "80px 24px 48px 24px"
       }}>
 
         {/* Header */}
