@@ -8,17 +8,23 @@ function GroupDetail() {
 
   const [group, setGroup] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [user, setUser] = useState(null);
+  const [joined, setJoined] = useState(false);
+  const [joinLoading, setJoinLoading] = useState(false);
+  const [groupMembers, setGroupMembers] = useState([]);
 
   useEffect(() => {
     fetchGroup();
+    fetchUser();
+    fetchMembers();
   }, []);
 
-  const fetchGroup = async () => {
-    // Why .eq("id", id)?
-    // .eq means "where id equals this value"
-    // .single() means "expect exactly one row back"
-    // instead of an array — since id is unique.
+  const fetchUser = async () => {
+    const { data: { session } } = await supabase.auth.getSession();
+    setUser(session?.user ?? null);
+  };
 
+  const fetchGroup = async () => {
     const { data, error } = await supabase
       .from("groups")
       .select("*")
@@ -29,8 +35,64 @@ function GroupDetail() {
       console.error(error);
     } else {
       setGroup(data);
+      checkMembership();
     }
     setLoading(false);
+  };
+
+  const checkMembership = async () => {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) return;
+
+    const { data } = await supabase
+      .from("memberships")
+      .select("*")
+      .eq("user_id", session.user.id)
+      .eq("group_id", id)
+      .maybeSingle();
+
+    if (data) setJoined(true);
+  };
+
+  const fetchMembers = async () => {
+    const { data, error } = await supabase
+      .from("memberships")
+      .select("user_id, created_at")
+      .eq("group_id", id);
+
+    if (error) {
+      console.error(error);
+    } else {
+      setGroupMembers(data);
+    }
+  };
+
+  const handleJoin = async () => {
+    if (!user) {
+      navigate("/login");
+      return;
+    }
+
+    setJoinLoading(true);
+
+    if (joined) {
+      await supabase
+        .from("memberships")
+        .delete()
+        .eq("user_id", user.id)
+        .eq("group_id", id);
+
+      setJoined(false);
+    } else {
+      await supabase
+        .from("memberships")
+        .insert([{ user_id: user.id, group_id: id }]);
+
+      setJoined(true);
+    }
+
+    fetchMembers();
+    setJoinLoading(false);
   };
 
   if (loading) {
@@ -66,7 +128,7 @@ function GroupDetail() {
         pointerEvents: "none", zIndex: 0
       }} />
 
-      <div style={{ position: "relative", zIndex: 1, maxWidth: "680px", margin: "0 auto", padding: "48px 24px" }}>
+      <div style={{ position: "relative", zIndex: 1, maxWidth: "680px", margin: "0 auto", padding: "80px 24px 48px" }}>
 
         <button
           onClick={() => navigate("/")}
@@ -96,7 +158,7 @@ function GroupDetail() {
           gap: "16px", marginBottom: "24px"
         }}>
           {[
-            { label: "Members", value: group.members },
+            { label: "Members", value: groupMembers.length },
             { label: "Level", value: group.level },
           ].map((stat) => (
             <div key={stat.label} style={{
@@ -130,21 +192,98 @@ function GroupDetail() {
           </div>
         )}
 
+        {/* Members list */}
+        <div className="animate-fadeInUp" style={{
+          background: "rgba(255,255,255,0.04)",
+          border: "1px solid rgba(255,255,255,0.08)",
+          borderRadius: "16px", padding: "24px",
+          marginBottom: "24px"
+        }}>
+          <h2 style={{ color: "white", fontWeight: "700", marginBottom: "16px" }}>
+            Members ({groupMembers.length})
+          </h2>
+
+          {groupMembers.length === 0 ? (
+            <p style={{ color: "#6b7280", fontSize: "14px" }}>
+              No members yet — be the first to join!
+            </p>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+              {groupMembers.map((member, index) => (
+                <div key={member.user_id} style={{
+                  display: "flex", alignItems: "center", gap: "12px",
+                  padding: "10px 14px",
+                  background: "rgba(255,255,255,0.04)",
+                  borderRadius: "10px",
+                  border: "1px solid rgba(255,255,255,0.06)"
+                }}>
+                  <div style={{
+                    width: "32px", height: "32px",
+                    borderRadius: "50%",
+                    background: "linear-gradient(135deg, #7c3aed, #4f46e5)",
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    fontSize: "13px", fontWeight: "700", color: "white",
+                    flexShrink: 0
+                  }}>
+                    {index + 1}
+                  </div>
+
+                  <div>
+                    <p style={{ color: "#9ca3af", fontSize: "13px" }}>
+                      Member #{index + 1}
+                    </p>
+                    <p style={{ color: "#6b7280", fontSize: "11px", marginTop: "2px" }}>
+                      Joined {new Date(member.created_at).toLocaleDateString()}
+                    </p>
+                  </div>
+
+                  {user && member.user_id === user.id && (
+                    <span style={{
+                      marginLeft: "auto",
+                      background: "rgba(139,92,246,0.2)",
+                      border: "1px solid rgba(139,92,246,0.3)",
+                      color: "#c4b5fd", fontSize: "11px",
+                      padding: "2px 10px", borderRadius: "999px"
+                    }}>
+                      You
+                    </span>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
         {/* Join button */}
         <button
+          onClick={handleJoin}
+          disabled={joinLoading}
           className="glow-button"
           style={{
             width: "100%", padding: "16px",
-            background: "linear-gradient(135deg, #7c3aed, #4f46e5)",
+            background: joined
+              ? "linear-gradient(135deg, #059669, #047857)"
+              : "linear-gradient(135deg, #7c3aed, #4f46e5)",
             color: "white", border: "none",
             borderRadius: "16px", fontSize: "16px",
-            fontWeight: "700", cursor: "pointer",
+            fontWeight: "700", cursor: joinLoading ? "not-allowed" : "pointer",
+            transition: "all 0.3s"
           }}
           onMouseEnter={e => e.currentTarget.style.transform = "scale(1.02)"}
           onMouseLeave={e => e.currentTarget.style.transform = "scale(1)"}
         >
-          Join this group
+          {joinLoading ? "..." : joined ? "✓ Joined — Leave group" : "Join this group"}
         </button>
+
+        {!user && (
+          <p style={{ color: "#6b7280", fontSize: "13px", textAlign: "center", marginTop: "12px" }}>
+            You need to{" "}
+            <span onClick={() => navigate("/login")} style={{ color: "#a78bfa", cursor: "pointer" }}>
+              login
+            </span>
+            {" "}to join a group
+          </p>
+        )}
 
       </div>
     </div>
